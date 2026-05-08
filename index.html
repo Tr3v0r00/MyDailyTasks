@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>My Tracker</title>
+  
+  <!-- 1. Tailwind CSS for Styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 2. Babel to process React JSX inside the browser -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- 3. Import Map to load React & Firebase securely from CDN -->
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0",
+        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+      }
+    }
+  </script>
+
+  <style>
+    /* Clean custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    
+    /* Ensure body stays full height for iPhone X */
+    body, html { height: 100%; overflow: hidden; background-color: #f8fafc; }
+  </style>
+</head>
+<body>
+  
+  <div id="root" class="h-full"></div>
+
+  <!-- Main React Application -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useEffect } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Plus, CheckCircle, ListTodo, X, ChevronDown, PlusCircle, Check, Trash2, XCircle, CloudOff } from 'lucide-react';
+    import { initializeApp } from 'firebase/app';
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+    import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+
+    // ============================================================================
+    // 🚀 GITHUB DEPLOYMENT INSTRUCTIONS:
+    // When you host this on GitHub Pages, the preview environment's cloud database 
+    // won't be available automatically. To enable cloud saving across your devices, 
+    // replace the 'null' below with your own Firebase Config object!
+    // Example: const myFirebaseConfig = { apiKey: "...", authDomain: "...", ... };
+    // ============================================================================
+    const myFirebaseConfig = null; 
+
+    // Internal initialization (Handles both Canvas Preview & GitHub)
+    const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+    const firebaseConfig = myFirebaseConfig || (firebaseConfigStr ? JSON.parse(firebaseConfigStr) : null);
+    
+    const app = firebaseConfig ? initializeApp(firebaseConfig) : null;
+    const auth = app ? getAuth(app) : null;
+    const db = app ? getFirestore(app) : null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-github-app-id';
+
+    // --- Default Schedule Data (Parsed from the provided image) ---
+    const baseEvents = [];
+    const monFri = [1, 2, 3, 4, 5];
+
+    const colors = {
+      gray: 'bg-slate-200 border-slate-400 text-slate-800',
+      pink: 'bg-pink-200 border-pink-500 text-pink-900',
+      cyan: 'bg-cyan-200 border-cyan-500 text-cyan-900',
+      yellow: 'bg-yellow-200 border-yellow-500 text-yellow-900',
+      orange: 'bg-orange-200 border-orange-500 text-orange-900',
+      white: 'bg-white border-slate-400 text-slate-800',
+      purple: 'bg-purple-200 border-purple-500 text-purple-900',
+    };
+
+    monFri.forEach(day => {
+      baseEvents.push({ id: `stretch-${day}`, title: "Stretching", day, start: "06:00", end: "06:30", color: colors.gray });
+      baseEvents.push({ id: `bfast-${day}`, title: "Breakfast", day, start: "06:30", end: "07:00", color: colors.gray });
+      baseEvents.push({ id: `exch1-${day}`, title: "Exchange Program Training", day, start: "07:00", end: "07:30", color: colors.pink });
+      baseEvents.push({ id: `lunch-${day}`, title: "Lunch", day, start: "12:00", end: "13:05", color: colors.gray });
+      baseEvents.push({ id: `snack1-${day}`, title: "Eat Snacks", day, start: "15:00", end: "15:15", color: colors.gray });
+      baseEvents.push({ id: `predin-${day}`, title: "Pre-Dinner", day, start: "16:05", end: "17:00", color: colors.gray });
+      baseEvents.push({ id: `exch2-${day}`, title: "Exchange Program Training", day, start: "17:00", end: "17:30", color: colors.pink });
+      baseEvents.push({ id: `gym-${day}`, title: "Gym Training", day, start: "17:30", end: "19:30", color: colors.white });
+      baseEvents.push({ id: `buy-${day}`, title: "Buy Dinner, Snacks & Bfast", day, start: "19:30", end: "20:00", color: colors.gray });
+      baseEvents.push({ id: `prep-${day}`, title: "Prepare garbage, Wash face, Prepare Shake, To do making", day, start: "21:00", end: "22:00", color: colors.white });
+      baseEvents.push({ id: `sleep-${day}`, title: "Sleep", day, start: "22:00", end: "22:30", color: colors.gray });
+    });
+
+    // Specific Days
+    baseEvents.push({ id: 'm1', title: "English - 702", day: 1, start: "09:10", end: "10:00", color: colors.cyan });
+    baseEvents.push({ id: 'm2', title: "Eat Snacks", day: 1, start: "10:10", end: "11:00", color: colors.white });
+    baseEvents.push({ id: 'm3', title: "Technology - 701", day: 1, start: "11:10", end: "12:00", color: colors.yellow });
+    baseEvents.push({ id: 'm4', title: "English - 701", day: 1, start: "13:10", end: "14:00", color: colors.cyan });
+    baseEvents.push({ id: 'm5', title: "Technology - 705", day: 1, start: "15:15", end: "16:05", color: colors.yellow });
+    baseEvents.push({ id: 'm6', title: "Eat Dinner", day: 1, start: "20:00", end: "21:00", color: colors.gray });
+
+    baseEvents.push({ id: 't1', title: "Technology - 702", day: 2, start: "08:10", end: "09:00", color: colors.yellow });
+    baseEvents.push({ id: 't2', title: "Technology - 703", day: 2, start: "09:10", end: "10:00", color: colors.yellow });
+    baseEvents.push({ id: 't3', title: "Technology - 704", day: 2, start: "10:10", end: "11:00", color: colors.yellow });
+    baseEvents.push({ id: 't4', title: "English - 704", day: 2, start: "14:10", end: "15:00", color: colors.cyan });
+    baseEvents.push({ id: 't5', title: "Technology - 701", day: 2, start: "15:15", end: "16:05", color: colors.yellow });
+
+    baseEvents.push({ id: 'w1', title: "Co-Planning Eat Snacks", day: 3, start: "09:10", end: "10:00", color: colors.orange });
+    baseEvents.push({ id: 'w2', title: "Technology - 702", day: 3, start: "10:10", end: "11:00", color: colors.yellow });
+    baseEvents.push({ id: 'w3', title: "PPT Making", day: 3, start: "13:10", end: "14:00", color: colors.white });
+    baseEvents.push({ id: 'w4', title: "PPT Making", day: 3, start: "15:15", end: "16:05", color: colors.white });
+    baseEvents.push({ id: 'w5', title: "Tutoring Session", day: 3, start: "20:00", end: "21:00", color: colors.orange });
+
+    baseEvents.push({ id: 'th1', title: "PPT Making Eat Snacks", day: 4, start: "09:10", end: "11:00", color: colors.white });
+    baseEvents.push({ id: 'th2', title: "English - 705", day: 4, start: "13:10", end: "14:00", color: colors.cyan });
+    baseEvents.push({ id: 'th3', title: "PPT - Technology", day: 4, start: "14:10", end: "15:00", color: colors.white });
+    baseEvents.push({ id: 'th4', title: "English - 703", day: 4, start: "15:15", end: "16:05", color: colors.cyan });
+
+    baseEvents.push({ id: 'f1', title: "PPT MAKING Eat Snacks", day: 5, start: "09:10", end: "10:00", color: colors.white });
+    baseEvents.push({ id: 'f2', title: "Technology - 705", day: 5, start: "10:10", end: "11:00", color: colors.yellow });
+    baseEvents.push({ id: 'f3', title: "Technology - 703", day: 5, start: "11:10", end: "12:00", color: colors.yellow });
+    baseEvents.push({ id: 'f4', title: "Technology - 704", day: 5, start: "14:10", end: "15:00", color: colors.yellow });
+    baseEvents.push({ id: 'f5', title: "Eat Dinner", day: 5, start: "20:00", end: "21:00", color: colors.gray });
+
+    baseEvents.push({ id: 's1', title: "English Class", day: 6, start: "10:10", end: "11:00", color: colors.white });
+
+    const parseTime = (timeStr) => {
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    };
+
+    const formatTime12 = (minutes) => {
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+    };
+
+    const START_HOUR = 5; // 5:00 AM
+    const END_HOUR = 23;  // 11:00 PM
+
+    function App() {
+      // --- State ---
+      const [now, setNow] = useState(new Date());
+      const [currentMonth, setCurrentMonth] = useState(new Date());
+      const [isPlannerOpen, setIsPlannerOpen] = useState(false);
+      
+      const [customTasks, setCustomTasks] = useState([]);
+      const [deletedBaseEventIds, setDeletedBaseEventIds] = useState([]);
+      const [taskStatuses, setTaskStatuses] = useState({});
+      
+      const [user, setUser] = useState(null);
+
+      const [selectedDayAgenda, setSelectedDayAgenda] = useState(null);
+      const [expandedSlot, setExpandedSlot] = useState(null);
+      
+      const [taskTitle, setTaskTitle] = useState("");
+      const [taskDate, setTaskDate] = useState(new Date().toISOString().split('T')[0]);
+      const [taskStart, setTaskStart] = useState("09:00");
+      const [taskEnd, setTaskEnd] = useState("10:00");
+
+      // Auth Effect
+      useEffect(() => {
+        if (!auth) return;
+        const initAuth = async () => {
+          const initialAuthTokenStr = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+          if (initialAuthTokenStr) {
+            await signInWithCustomToken(auth, initialAuthTokenStr);
+          } else {
+            await signInAnonymously(auth);
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
+
+      // Cloud Data Sync Effect
+      useEffect(() => {
+        if (!user || !db) return;
+
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scheduleData', 'main');
+
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setCustomTasks(data.customTasks || []);
+            setTaskStatuses(data.taskStatuses || {});
+            setDeletedBaseEventIds(data.deletedBaseEventIds || []);
+          }
+        }, (error) => {
+          console.error("Cloud database error:", error);
+        });
+
+        return () => unsubscribe();
+      }, [user]);
+
+      // Time Tracking Effect
+      useEffect(() => {
+        const timer = setInterval(() => setNow(new Date()), 60000);
+        return () => clearInterval(timer);
+      }, []);
+
+      // Handlers 
+      const updateFirestore = async (newCustomTasks, newTaskStatuses, newDeletedIds) => {
+        if (!user || !db) return;
+        try {
+          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scheduleData', 'main');
+          await setDoc(docRef, {
+            customTasks: newCustomTasks,
+            taskStatuses: newTaskStatuses,
+            deletedBaseEventIds: newDeletedIds
+          });
+        } catch (error) {
+          console.error("Error saving data:", error);
+        }
+      };
+
+      const changeMonth = (amount) => {
+        const newMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + amount, 1);
+        setCurrentMonth(newMonth);
+      };
+
+      const goToTodayMonth = () => {
+        setCurrentMonth(new Date());
+      };
+
+      const handleAddTask = (e) => {
+        e.preventDefault();
+        if (!taskTitle.trim() || !taskDate || !taskStart || !taskEnd) return;
+        
+        const newTask = {
+          id: `custom-${Date.now()}`,
+          title: taskTitle,
+          date: taskDate,
+          start: taskStart,
+          end: taskEnd,
+          color: colors.purple,
+          isCustom: true
+        };
+
+        const newCustomTasks = [...customTasks, newTask];
+        setCustomTasks(newCustomTasks);
+        updateFirestore(newCustomTasks, taskStatuses, deletedBaseEventIds);
+        
+        setTaskTitle("");
+        setIsPlannerOpen(false); 
+      };
+
+      const removeTask = (id) => {
+        const newCustomTasks = customTasks.filter(t => t.id !== id);
+        setCustomTasks(newCustomTasks);
+
+        let newDeletedIds = deletedBaseEventIds;
+        if (!id.startsWith('custom-') && !deletedBaseEventIds.includes(id)) {
+          newDeletedIds = [...deletedBaseEventIds, id];
+          setDeletedBaseEventIds(newDeletedIds);
+        }
+
+        updateFirestore(newCustomTasks, taskStatuses, newDeletedIds);
+      };
+
+      const handleTaskStatus = (taskId, dateStr, status) => {
+        const key = `${taskId}_${dateStr}`;
+        const newTaskStatuses = { ...taskStatuses };
+
+        if (newTaskStatuses[key] === status) {
+          delete newTaskStatuses[key];
+        } else {
+          newTaskStatuses[key] = status;
+        }
+
+        setTaskStatuses(newTaskStatuses);
+        updateFirestore(customTasks, newTaskStatuses, deletedBaseEventIds);
+      };
+
+      const handleDayClick = (date) => {
+        setSelectedDayAgenda(date);
+        
+        if (date.toDateString() === now.toDateString()) {
+          const currentHour = now.getHours();
+          if (currentHour >= START_HOUR && currentHour <= END_HOUR) {
+            setExpandedSlot(currentHour);
+          } else {
+            setExpandedSlot(null);
+          }
+        } else {
+          setExpandedSlot(null); 
+        }
+      };
+
+      const openPlannerForTime = (date, hour) => {
+        const offsetDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
+        setTaskDate(offsetDate.toISOString().split('T')[0]);
+        setTaskStart(`${String(hour).padStart(2, '0')}:00`);
+        setTaskEnd(`${String(hour + 1).padStart(2, '0')}:00`);
+        setIsPlannerOpen(true);
+      };
+
+      // Computations
+      const getEventsForDay = (date) => {
+        const dayIndex = date.getDay();
+        const dateString = new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+        const dayBaseEvents = baseEvents.filter(e => e.day === dayIndex && !deletedBaseEventIds.includes(e.id));
+        const dayCustomEvents = customTasks.filter(e => e.date === dateString);
+        return [...dayBaseEvents, ...dayCustomEvents];
+      };
+
+      const hoursList = Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, i) => START_HOUR + i);
+
+      const getCalendarDays = () => {
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const firstDayOfMonth = new Date(year, month, 1).getDay(); 
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        
+        const days = [];
+        for (let i = 0; i < firstDayOfMonth; i++) {
+          days.push(null);
+        }
+        for (let i = 1; i <= daysInMonth; i++) {
+          days.push(new Date(year, month, i));
+        }
+        return days;
+      };
+
+      const calendarDays = getCalendarDays();
+      const weekDaysShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+      return (
+        <div className="flex h-full w-full bg-slate-50 font-sans text-slate-800 overflow-hidden relative flex-col">
+          
+          {/* OFFLINE/GITHUB WARNING BANNER */}
+          {!db && (
+            <div className="bg-amber-100 px-4 py-2.5 flex items-center justify-center gap-2 text-amber-900 text-[11px] font-bold text-center z-50 shrink-0 shadow-sm border-b border-amber-200">
+              <CloudOff size={16} className="shrink-0" />
+              <span>Offline Mode: See code instructions to connect your own Firebase and save data.</span>
+            </div>
+          )}
+
+          {/* Main Calendar View (Monthly) */}
+          <div className="flex-1 flex flex-col min-w-0 bg-white h-full shadow-lg overflow-y-auto">
+            
+            {/* Header */}
+            <header className="px-5 py-4 flex flex-col gap-4 bg-white z-10 shrink-0">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-extrabold text-slate-800 tracking-tight">
+                  {currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                </h2>
+                <button 
+                  onClick={() => setIsPlannerOpen(true)}
+                  className="p-2.5 bg-indigo-600 text-white rounded-full shadow-md hover:bg-indigo-700 transition-colors"
+                >
+                  <Plus size={22} />
+                </button>
+              </div>
+              
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100 shadow-sm">
+                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                  {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+
+                <div className="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
+                  <button onClick={() => changeMonth(-1)} className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all text-slate-600">
+                    <ChevronLeft size={20} />
+                  </button>
+                  <button onClick={goToTodayMonth} className="px-3 py-1 text-sm font-bold rounded hover:bg-white hover:shadow-sm transition-all text-slate-700">
+                    Today
+                  </button>
+                  <button onClick={() => changeMonth(1)} className="p-2 rounded-lg hover:bg-white hover:shadow-sm transition-all text-slate-600">
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            {/* Calendar Grid */}
+            <div className="flex-1 p-3">
+              <div className="grid grid-cols-7 mb-2">
+                {weekDaysShort.map(day => (
+                  <div key={day} className="text-center text-[11px] font-bold uppercase tracking-wider text-slate-400 py-2">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1.5 md:gap-2">
+                {calendarDays.map((date, index) => {
+                  if (!date) {
+                    return <div key={`empty-${index}`} className="aspect-square rounded-xl bg-slate-50/50"></div>;
+                  }
+
+                  const todayNormalized = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  const isToday = date.getTime() === todayNormalized.getTime();
+                  const isPast = date < todayNormalized;
+
+                  const dayEvents = getEventsForDay(date);
+                  const hasTasks = dayEvents.length > 0;
+
+                  return (
+                    <div 
+                      key={index} 
+                      onClick={() => handleDayClick(date)}
+                      className={`relative aspect-square flex flex-col items-center justify-center rounded-2xl border transition-all cursor-pointer shadow-sm
+                        ${isToday 
+                          ? 'bg-indigo-600 border-indigo-600 text-white hover:bg-indigo-700 scale-105 z-10 shadow-indigo-200' 
+                          : isPast
+                            ? 'bg-slate-100 border-slate-200 text-slate-400 grayscale opacity-60 hover:opacity-100 hover:bg-slate-200'
+                            : 'bg-white border-slate-200 text-slate-700 hover:border-indigo-300 hover:shadow-md'
+                        }
+                      `}
+                    >
+                      <span className={`text-lg md:text-xl font-bold ${isToday ? 'text-white' : ''}`}>
+                        {date.getDate()}
+                      </span>
+                      
+                      {hasTasks && (
+                        <div className="absolute bottom-1.5 md:bottom-2 flex gap-0.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${isToday ? 'bg-white' : isPast ? 'bg-slate-400' : 'bg-indigo-400'}`}></div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* --- Day Details / Agenda Modal --- */}
+          {selectedDayAgenda && (
+            <div className="absolute inset-0 z-40 flex flex-col bg-slate-900/60 backdrop-blur-sm transition-opacity">
+              <div className="flex-1" onClick={() => setSelectedDayAgenda(null)}></div>
+              <div className="bg-white rounded-t-3xl shadow-2xl h-[85vh] flex flex-col w-full max-w-md mx-auto relative transform transition-transform animate-in slide-in-from-bottom-8">
+                
+                <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center bg-white sticky top-0 z-10 shadow-sm rounded-t-3xl">
+                  <div>
+                    <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">
+                      {selectedDayAgenda.toLocaleString('default', { weekday: 'long' })}
+                    </h1>
+                    <p className="text-sm font-bold text-indigo-600">
+                      {selectedDayAgenda.toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </div>
+                  <button onClick={() => setSelectedDayAgenda(null)} className="p-2.5 bg-slate-100 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-200 transition-colors">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto flex-1 bg-slate-50 relative pb-10">
+                  {hoursList.map(hour => {
+                    const startMin = hour * 60;
+                    const endMin = (hour + 1) * 60;
+                    const dayEventsForAgenda = getEventsForDay(selectedDayAgenda);
+                    
+                    const slotEvents = dayEventsForAgenda.filter(e => {
+                      const eStart = parseTime(e.start);
+                      const eEnd = parseTime(e.end);
+                      return eStart < endMin && eEnd > startMin;
+                    });
+
+                    const isExpanded = expandedSlot === hour;
+                    
+                    const todayDateOnly = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                    const selectedDateOnly = new Date(selectedDayAgenda.getFullYear(), selectedDayAgenda.getMonth(), selectedDayAgenda.getDate());
+                    
+                    const isToday = selectedDateOnly.getTime() === todayDateOnly.getTime();
+                    const isPastDay = selectedDateOnly.getTime() < todayDateOnly.getTime();
+                    const currentHour = now.getHours();
+                    
+                    const isCurrentHour = isToday && currentHour === hour;
+                    const isPastHour = isPastDay || (isToday && hour < currentHour);
+
+                    return (
+                      <div key={hour} className={`border-b border-slate-200 transition-all ${isCurrentHour ? 'bg-red-50/30' : 'bg-white'} ${isPastHour ? 'opacity-50 grayscale' : ''}`}>
+                        
+                        <button 
+                          onClick={() => setExpandedSlot(isExpanded ? null : hour)}
+                          className={`w-full flex justify-between items-center p-4 transition-colors
+                            ${isCurrentHour ? 'border-l-4 border-red-500 bg-red-50' : 'hover:bg-slate-50'}
+                          `}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className={`font-extrabold text-base ${isCurrentHour ? 'text-red-700' : 'text-slate-700'}`}>
+                              {formatTime12(startMin)}
+                            </span>
+                            {isCurrentHour && (
+                              <span className="flex h-2 w-2 relative">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {slotEvents.length > 0 && (
+                              <span className={`text-[11px] px-2.5 py-1 rounded-full font-bold shadow-sm border
+                                ${isCurrentHour ? 'bg-red-100 text-red-700 border-red-200' : 'bg-indigo-100 text-indigo-700 border-indigo-200'}
+                              `}>
+                                {slotEvents.length} {slotEvents.length === 1 ? 'Task' : 'Tasks'}
+                              </span>
+                            )}
+                            <ChevronDown className={`transition-transform duration-200 ${isExpanded ? 'rotate-180 text-indigo-600' : 'text-slate-400'} ${isCurrentHour && !isExpanded ? 'text-red-500' : ''}`} size={20} />
+                          </div>
+                        </button>
+
+                        {isExpanded && (
+                          <div className="px-4 py-4 bg-slate-50 border-t border-slate-100 shadow-inner flex flex-col gap-3">
+                            {slotEvents.length > 0 ? (
+                              slotEvents.map(ev => {
+                                const selectedDateStr = new Date(selectedDayAgenda.getTime() - (selectedDayAgenda.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+                                const statusKey = `${ev.id}_${selectedDateStr}`;
+                                const currentStatus = taskStatuses[statusKey];
+
+                                let cardStyle = ev.color;
+                                let textStyle = "";
+                                
+                                if (currentStatus === 'done') {
+                                    cardStyle = "bg-green-50 border-green-500 text-green-900";
+                                    textStyle = "opacity-60";
+                                } else if (currentStatus === 'skipped') {
+                                    cardStyle = "bg-slate-100 border-slate-400 text-slate-500";
+                                    textStyle = "opacity-50 line-through grayscale";
+                                }
+
+                                return (
+                                  <div key={ev.id} className={`p-3.5 rounded-xl border border-r border-t border-b border-l-4 shadow-sm text-sm relative transition-all duration-300 ${cardStyle}`}>
+                                    <div className={`${textStyle}`}>
+                                      <div className="font-extrabold text-[14px] leading-snug flex items-start gap-2">
+                                        {currentStatus === 'done' && <CheckCircle size={16} className="text-green-500 shrink-0 mt-0.5" />}
+                                        {ev.title}
+                                      </div>
+                                      <div className="text-xs opacity-90 mt-1.5 flex items-center gap-1.5 font-bold">
+                                        <Clock size={14}/> {formatTime12(parseTime(ev.start))} - {formatTime12(parseTime(ev.end))}
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 mt-3 pt-3 border-t border-black/5">
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleTaskStatus(ev.id, selectedDateStr, 'done'); }}
+                                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${currentStatus === 'done' ? 'bg-green-500 text-white shadow-inner scale-[0.98]' : 'bg-white/80 hover:bg-white text-green-700 shadow-sm hover:shadow'}`}
+                                      >
+                                        <Check size={14} /> {currentStatus === 'done' ? 'Done!' : 'Done'}
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleTaskStatus(ev.id, selectedDateStr, 'skipped'); }}
+                                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${currentStatus === 'skipped' ? 'bg-slate-500 text-white shadow-inner scale-[0.98]' : 'bg-white/80 hover:bg-white text-slate-700 shadow-sm hover:shadow'}`}
+                                      >
+                                        <XCircle size={14} /> {currentStatus === 'skipped' ? 'Skipped' : 'Skip'}
+                                      </button>
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); removeTask(ev.id); }} 
+                                        className="p-1.5 bg-white/80 hover:bg-red-50 text-red-500 hover:text-red-700 rounded-lg shadow-sm transition-colors ml-auto"
+                                        title="Delete task completely"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="text-center py-4 rounded-xl border border-dashed border-slate-300 bg-white">
+                                <p className="text-xs font-semibold text-slate-400">No scheduled activities for this hour.</p>
+                              </div>
+                            )}
+
+                            <button 
+                              onClick={() => openPlannerForTime(selectedDayAgenda, hour)}
+                              className="mt-2 w-full flex items-center justify-center gap-2 bg-white border-2 border-indigo-100 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 py-3 px-4 rounded-xl text-sm font-extrabold shadow-sm transition-colors"
+                            >
+                              <PlusCircle size={18} />
+                              Add Activity Here
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* --- Existing Planner Form Modal --- */}
+          {isPlannerOpen && (
+            <div className="absolute inset-0 z-50 flex flex-col bg-slate-900/60 backdrop-blur-sm transition-opacity">
+              <div className="flex-1" onClick={() => setIsPlannerOpen(false)}></div>
+              <div className="bg-white rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col w-full max-w-md mx-auto relative transform transition-transform animate-in slide-in-from-bottom-8">
+                
+                <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-white sticky top-0 z-10">
+                  <div className="flex items-center gap-2 text-indigo-600">
+                    <ListTodo size={22} />
+                    <h1 className="text-xl font-extrabold tracking-tight">New Task</h1>
+                  </div>
+                  <button onClick={() => setIsPlannerOpen(false)} className="p-2 bg-slate-100 rounded-full text-slate-500 hover:text-slate-800 hover:bg-slate-200">
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div className="overflow-y-auto pb-10 bg-slate-50">
+                  <div className="p-5 border-b border-slate-200 bg-white">
+                    <form onSubmit={handleAddTask} className="flex flex-col gap-4">
+                      <div>
+                        <label className="block text-xs font-extrabold text-slate-500 mb-1.5 uppercase tracking-wide">Task Name</label>
+                        <input 
+                          type="text" 
+                          value={taskTitle}
+                          onChange={(e) => setTaskTitle(e.target.value)}
+                          placeholder="What do you need to do?"
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-sm"
+                          required
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-extrabold text-slate-500 mb-1.5 uppercase tracking-wide">Date</label>
+                        <input 
+                          type="date" 
+                          value={taskDate}
+                          onChange={(e) => setTaskDate(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-sm"
+                          required
+                        />
+                      </div>
+                      <div className="flex gap-3">
+                        <div className="flex-1">
+                          <label className="block text-xs font-extrabold text-slate-500 mb-1.5 uppercase tracking-wide">Start Time</label>
+                          <input 
+                            type="time" 
+                            value={taskStart}
+                            onChange={(e) => setTaskStart(e.target.value)}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-sm"
+                            required
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-xs font-extrabold text-slate-500 mb-1.5 uppercase tracking-wide">End Time</label>
+                          <input 
+                            type="time" 
+                            value={taskEnd}
+                            onChange={(e) => setTaskEnd(e.target.value)}
+                            className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl text-base font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all shadow-sm"
+                            required
+                          />
+                        </div>
+                      </div>
+                      <button 
+                        type="submit" 
+                        className="mt-4 w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white py-4 px-4 rounded-xl text-base font-extrabold shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                      >
+                        <Plus size={20} />
+                        Save to Schedule
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="p-5">
+                    <h2 className="text-xs font-extrabold text-slate-500 uppercase tracking-wide mb-4">Your Custom Tasks</h2>
+                    {customTasks.length === 0 ? (
+                      <div className="text-center py-8 text-slate-400">
+                        <CheckCircle size={36} className="mx-auto mb-3 opacity-30 text-slate-500" />
+                        <p className="text-sm font-bold text-slate-500">No custom tasks added yet.</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {customTasks.map(task => (
+                          <div key={task.id} className={`p-4 rounded-xl border border-r border-t border-b border-l-4 shadow-sm text-sm flex justify-between items-start group ${task.color}`}>
+                            <div>
+                              <p className="font-extrabold text-base text-slate-900">{task.title}</p>
+                              <p className="text-xs text-slate-700 mt-2 flex items-center gap-1.5 font-bold">
+                                <CalendarIcon size={14}/> {task.date}
+                              </p>
+                              <p className="text-xs text-slate-700 flex items-center gap-1.5 mt-1 font-bold">
+                                <Clock size={14}/> {formatTime12(parseTime(task.start))} - {formatTime12(parseTime(task.end))}
+                              </p>
+                            </div>
+                            <button onClick={() => removeTask(task.id)} className="text-[11px] bg-white border border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 font-extrabold px-3 py-2 rounded-lg transition-colors shadow-sm">
+                              Delete
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
