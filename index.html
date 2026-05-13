@@ -11,16 +11,13 @@
   <!-- 2. Babel to process React JSX inside the browser -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- 3. Import Map to load React & Firebase securely from CDN -->
+  <!-- 3. Import Map to load React securely from CDN -->
   <script type="importmap">
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0",
-        "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
-        "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+        "lucide-react": "https://esm.sh/lucide-react@0.292.0?deps=react@18.2.0"
       }
     }
   </script>
@@ -44,28 +41,12 @@
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Plus, CheckCircle, ListTodo, X, ChevronDown, PlusCircle, Check, Trash2, XCircle, CloudOff } from 'lucide-react';
-    import { initializeApp } from 'firebase/app';
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-    import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
+    import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, Plus, CheckCircle, ListTodo, X, ChevronDown, PlusCircle, Check, Trash2, XCircle } from 'lucide-react';
 
-    // ============================================================================
-    // 🚀 GITHUB DEPLOYMENT INSTRUCTIONS:
-    // When you host this on GitHub Pages, the preview environment's cloud database 
-    // won't be available automatically. To enable cloud saving across your devices, 
-    // replace the 'null' below with your own Firebase Config object!
-    // Example: const myFirebaseConfig = { apiKey: "...", authDomain: "...", ... };
-    // ============================================================================
-    const myFirebaseConfig = null; 
-
-    // Internal initialization (Handles both Canvas Preview & GitHub)
-    const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-    const firebaseConfig = myFirebaseConfig || (firebaseConfigStr ? JSON.parse(firebaseConfigStr) : null);
-    
-    const app = firebaseConfig ? initializeApp(firebaseConfig) : null;
-    const auth = app ? getAuth(app) : null;
-    const db = app ? getFirestore(app) : null;
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-github-app-id';
+    // Local Storage Keys
+    const STORAGE_KEY_TASKS = 'myTracker_customTasks';
+    const STORAGE_KEY_STATUSES = 'myTracker_taskStatuses';
+    const STORAGE_KEY_DELETED = 'myTracker_deletedIds';
 
     // --- Default Schedule Data (Parsed from the provided image) ---
     const baseEvents = [];
@@ -150,11 +131,18 @@
       const [currentMonth, setCurrentMonth] = useState(new Date());
       const [isPlannerOpen, setIsPlannerOpen] = useState(false);
       
-      const [customTasks, setCustomTasks] = useState([]);
-      const [deletedBaseEventIds, setDeletedBaseEventIds] = useState([]);
-      const [taskStatuses, setTaskStatuses] = useState({});
-      
-      const [user, setUser] = useState(null);
+      const [customTasks, setCustomTasks] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY_TASKS);
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [deletedBaseEventIds, setDeletedBaseEventIds] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY_DELETED);
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [taskStatuses, setTaskStatuses] = useState(() => {
+        const saved = localStorage.getItem(STORAGE_KEY_STATUSES);
+        return saved ? JSON.parse(saved) : {};
+      });
 
       const [selectedDayAgenda, setSelectedDayAgenda] = useState(null);
       const [expandedSlot, setExpandedSlot] = useState(null);
@@ -164,42 +152,6 @@
       const [taskStart, setTaskStart] = useState("09:00");
       const [taskEnd, setTaskEnd] = useState("10:00");
 
-      // Auth Effect
-      useEffect(() => {
-        if (!auth) return;
-        const initAuth = async () => {
-          const initialAuthTokenStr = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-          if (initialAuthTokenStr) {
-            await signInWithCustomToken(auth, initialAuthTokenStr);
-          } else {
-            await signInAnonymously(auth);
-          }
-        };
-        initAuth();
-        const unsubscribe = onAuthStateChanged(auth, setUser);
-        return () => unsubscribe();
-      }, []);
-
-      // Cloud Data Sync Effect
-      useEffect(() => {
-        if (!user || !db) return;
-
-        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scheduleData', 'main');
-
-        const unsubscribe = onSnapshot(docRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setCustomTasks(data.customTasks || []);
-            setTaskStatuses(data.taskStatuses || {});
-            setDeletedBaseEventIds(data.deletedBaseEventIds || []);
-          }
-        }, (error) => {
-          console.error("Cloud database error:", error);
-        });
-
-        return () => unsubscribe();
-      }, [user]);
-
       // Time Tracking Effect
       useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 60000);
@@ -207,18 +159,10 @@
       }, []);
 
       // Handlers 
-      const updateFirestore = async (newCustomTasks, newTaskStatuses, newDeletedIds) => {
-        if (!user || !db) return;
-        try {
-          const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'scheduleData', 'main');
-          await setDoc(docRef, {
-            customTasks: newCustomTasks,
-            taskStatuses: newTaskStatuses,
-            deletedBaseEventIds: newDeletedIds
-          });
-        } catch (error) {
-          console.error("Error saving data:", error);
-        }
+      const saveToLocalStorage = (newCustomTasks, newTaskStatuses, newDeletedIds) => {
+        localStorage.setItem(STORAGE_KEY_TASKS, JSON.stringify(newCustomTasks));
+        localStorage.setItem(STORAGE_KEY_STATUSES, JSON.stringify(newTaskStatuses));
+        localStorage.setItem(STORAGE_KEY_DELETED, JSON.stringify(newDeletedIds));
       };
 
       const changeMonth = (amount) => {
@@ -246,7 +190,7 @@
 
         const newCustomTasks = [...customTasks, newTask];
         setCustomTasks(newCustomTasks);
-        updateFirestore(newCustomTasks, taskStatuses, deletedBaseEventIds);
+        saveToLocalStorage(newCustomTasks, taskStatuses, deletedBaseEventIds);
         
         setTaskTitle("");
         setIsPlannerOpen(false); 
@@ -262,7 +206,7 @@
           setDeletedBaseEventIds(newDeletedIds);
         }
 
-        updateFirestore(newCustomTasks, taskStatuses, newDeletedIds);
+        saveToLocalStorage(newCustomTasks, taskStatuses, newDeletedIds);
       };
 
       const handleTaskStatus = (taskId, dateStr, status) => {
@@ -276,7 +220,7 @@
         }
 
         setTaskStatuses(newTaskStatuses);
-        updateFirestore(customTasks, newTaskStatuses, deletedBaseEventIds);
+        saveToLocalStorage(customTasks, newTaskStatuses, deletedBaseEventIds);
       };
 
       const handleDayClick = (date) => {
@@ -334,14 +278,6 @@
 
       return (
         <div className="flex h-full w-full bg-slate-50 font-sans text-slate-800 overflow-hidden relative flex-col">
-          
-          {/* OFFLINE/GITHUB WARNING BANNER */}
-          {!db && (
-            <div className="bg-amber-100 px-4 py-2.5 flex items-center justify-center gap-2 text-amber-900 text-[11px] font-bold text-center z-50 shrink-0 shadow-sm border-b border-amber-200">
-              <CloudOff size={16} className="shrink-0" />
-              <span>Offline Mode: See code instructions to connect your own Firebase and save data.</span>
-            </div>
-          )}
 
           {/* Main Calendar View (Monthly) */}
           <div className="flex-1 flex flex-col min-w-0 bg-white h-full shadow-lg overflow-y-auto">
